@@ -1,288 +1,291 @@
-# GPT-6 机器人操作能力探针（LIBERO）
+# Probing GPT-6's Robot Manipulation Abilities (LIBERO)
 
-GPT-6 能在仿真里操作机械臂。本项目把"操作"拆成几种能力分别测量，找出它的瓶颈在哪一步。
+**English** | [中文](README_zh.md)
 
-**结论**：规划没问题，控制也没问题，瓶颈是**从单个斜视相机判断远近**。给它物体坐标，它直接输出电机动作，40 回合成功 37 次；只给主相机的图，成功 2 次，夹爪平均落在物体靠相机一侧 7.2 cm 处；再给一张侧视相机的图，成功 34 次。
+GPT-6 can operate a robot arm in simulation. This project breaks "manipulation" into separate abilities and measures each one on its own to find where the bottleneck is.
 
-- 环境：LIBERO 仿真（Franka 机械臂，libero_goal 任务集）
-- 模型：`gpt-6-astra`，通过 Codex CLI 调用
-- 规模：共 413 个 GPT-6 回合，另有 40 个真值对照回合
-- 代码与复现命令：[`code/`](code/README.md)
+**Finding**: planning is fine and control is fine. The bottleneck is **judging depth from a single oblique camera**. When given object coordinates, GPT-6 outputs raw motor actions directly and succeeds in 37 of 40 episodes. With only the main camera image it succeeds 2 times, and the gripper lands on average 7.2 cm on the camera side of the object. Adding one side-view camera image raises this to 34 successes.
+
+- Environment: LIBERO simulation (Franka arm, libero_goal suite)
+- Model: `gpt-6-astra`, called through the Codex CLI
+- Scale: 413 GPT-6 episodes, plus 40 ground-truth control episodes
+- Code and reproduction commands: [`code/`](code/README.md)
 
 ---
 
-## 1. 测试什么能力
+## 1. What we test
 
-让机械臂"把碗放到盘子上"，需要依次做对三件事：
+To "put the bowl on the plate", a robot has to get three things right in sequence:
 
-| 能力 | 含义 | 例子 |
+| Ability | Meaning | Example |
 |---|---|---|
-| ① 规划 | 先抓什么、放哪、抓哪个部位 | "碗太宽，要夹碗沿，再放到盘子上" |
-| ② 图上定位（2D） | 在图像里找到那个位置 | "碗的右沿在图上第 280 列、第 284 行" |
-| ③ 空间定位（3D） | 那个位置在真实空间里的米制坐标 | "碗沿在 x=−0.10, y=−0.06, z=0.94 m" |
+| ① Planning | What to grasp, where to put it, which part to hold | "The bowl is too wide, so grasp its rim, then place it on the plate" |
+| ② 2D localization | Find that location in the image | "The bowl's right rim is at column 280, row 284" |
+| ③ 3D localization | That location's metric coordinates in the real scene | "The rim is at x=−0.10, y=−0.06, z=0.94 m" |
 
-在这之外还有第四种：④ **底层控制**，即不借助任何控制程序，直接输出每一步电机动作。
+There is also a fourth: ④ **low-level control**, i.e. outputting every motor action directly, with no controller in between.
 
-要回答的问题：GPT-6 能控制机器人，是因为它有很强的 3D 空间理解，还是因为它是一个很强的规划器？以及，它能不能像 VLA 一样直接输出动作？
+Questions: does GPT-6 manage to control robots because it has strong 3D spatial understanding, or because it is a strong planner? And can it output actions directly, the way a VLA does?
 
-## 2. 实验设计
+## 2. Experimental design
 
-### 任务
+### Tasks
 
-| 任务 | 内容 | 成功条件 |
+| Task | Content | Success condition |
 |---|---|---|
-| 8 | 把碗放到盘子上 | 严：碗心离盘心 < 3 cm |
-| 1 | 把碗放到炉子上 | 松 |
-| 4 | 把碗放到柜顶 | 松 |
-| 6 | 把奶油芝士放进碗里 | 严 |
+| 8 | Put the bowl on the plate | Strict: bowl center within 3 cm of plate center |
+| 1 | Put the bowl on the stove | Loose |
+| 4 | Put the bowl on top of the cabinet | Loose |
+| 6 | Put the cream cheese in the bowl | Strict |
 
-第四轮另测了 libero_goal 其余 6 个任务（见 3.4）。每个条件、每个任务 10 回合，成功与否由仿真器判定。
+Round 4 also covers the remaining 6 libero_goal tasks (see 3.4). Each condition runs 10 episodes per task, and success is judged by the simulator.
 
-### 第一轮：GPT-6 只说"在哪"，由固定控制程序执行（条件 A–D）
+### Round 1: GPT-6 only says "where"; a fixed controller executes (conditions A–D)
 
-每一步把两张图（固定主相机、腕部相机）和指令发给 GPT-6，它只回复 `抓取(位置)`、`放置(位置)` 或 `完成`，由一段固定的控制程序移动机械臂。每回合最多 6 次调用。**四个条件的唯一区别是 GPT-6 用什么方式表达"位置"：**
+At each step, two images (a fixed third-person camera and the wrist camera) plus the instruction are sent to GPT-6. It replies with only `grasp(location)`, `place(location)` or `done`, and a fixed controller moves the arm. Up to 6 calls per episode. **The only difference between the four conditions is how GPT-6 expresses "location":**
 
-| 条件 | GPT-6 输出 | 需要它自己具备 | 程序代劳 |
+| Condition | GPT-6 outputs | It must handle itself | Handled by the program |
 |---|---|---|---|
-| **A** 指像素（有提示） | 图上像素坐标 | ① + ② | 用深度图把像素换成 3D（③） |
-| **B** 指像素（无提示） | 同 A | 同 A，还要自己想到两条物理常识 | 同 A |
-| **C** 报坐标（给答案） | 米制 3D 坐标，提示词里给出每个物体的真实坐标 | 只需 ① | ② ③ |
-| **D** 报坐标（只看图） | 米制 3D 坐标，不给物体坐标 | ① + ② + ③ | 无 |
+| **A** Pixel (with hints) | Pixel coordinates in the image | ① + ② | Converts the pixel to 3D with the depth map (③) |
+| **B** Pixel (no hints) | Same as A | Same as A, plus two pieces of physical common sense | Same as A |
+| **C** Metric xyz (answer given) | Metric 3D coordinates; the prompt lists every object's true coordinates | Only ① | ② ③ |
+| **D** Metric xyz (images only) | Metric 3D coordinates; no object coordinates given | ① + ② + ③ | Nothing |
 
-A 比 B 多的两句提示："碗比夹爪宽，要夹碗沿"；"夹着碗沿时碗心与夹爪有偏移，放置时要补偿"。
+A's prompt has two hints that B's lacks: "The bowl is wider than the gripper, so grasp its rim" and "When holding the rim, the bowl's center is offset from the gripper, so compensate when placing."
 
-读法：C 成功 → 规划没问题；A 成功而 D 失败 → 2D 定位没问题、3D 定位有问题；A 成功而 B 失败 → 缺物理常识。
+How to read the results: C succeeds → planning is fine. A succeeds but D fails → 2D localization is fine, 3D localization is not. A succeeds but B fails → missing physical common sense.
 
-**真值对照组**：用物体真实位置代替 GPT-6，走同一套控制程序，40/40 成功。因此下面的失败都可以归因于 GPT-6 给的位置或决策。
+**Ground-truth control**: replacing GPT-6 with the true object positions, run through the same controller, succeeds 40/40. So every failure below can be attributed to the locations or decisions GPT-6 gives.
 
 <img src="assets/task8_grasp_points.jpg" width="420">
 
-*任务 8 第一步（抓碗）的实际输出。白点为碗心真实位置；蓝 = A 指的像素（碗右沿）；绿 = C 报的坐标（碗左沿）；红 = D 报的坐标（碗外桌面，偏 8 cm）。C 和 D 给出的理由一字不差（"夹碗的左沿，以便提到盘子上"）：D 知道该干什么，只是不知道碗在哪。*
+*GPT-6's actual outputs for the first step of task 8 (grasping the bowl). The white dot is the true bowl center. Blue = A's pixel (right rim); green = C's coordinates (left rim); red = D's coordinates (on the table outside the bowl, 8 cm off). C and D gave word-for-word identical reasoning ("grasp the left rim of the bowl so it can be lifted onto the plate"). D knows what to do; it just doesn't know where the bowl is.*
 
-### 第二轮：GPT-6 直接输出机器人动作（条件 E、F）
+### Round 2: GPT-6 outputs robot actions directly (conditions E, F)
 
-不使用任何控制程序。每次调用 GPT-6 输出最多 10 步 LIBERO 原生动作 `[dx, dy, dz, 3 个旋转量, 夹爪]`（范围 −1 到 1，与 π₀ 等 VLA 的输出格式相同），原样送进仿真器。执行后把新图、末端位移、末端位置、夹爪开口发回给它。每回合最多 40 次调用、450 步。提示词中写明了实测的控制器响应（满幅每步约 1.3 cm、停下后滑行约 1 cm、夹爪闭合约 10 步）。
+No controller is used. Each call, GPT-6 outputs up to 10 steps of LIBERO's native action `[dx, dy, dz, 3 rotations, gripper]` (range −1 to 1, the same format VLAs like π₀ output), which are sent to the simulator as-is. After execution it gets new images, the end-effector displacement and position, and the gripper opening. Up to 40 calls and 450 steps per episode. The prompt states the measured controller response (about 1.3 cm per step at full scale, about 1 cm of coasting after stopping, about 10 steps to close the gripper).
 
-| 条件 | GPT-6 能看到 | 测什么 |
+| Condition | GPT-6 sees | Measures |
 |---|---|---|
-| **E** 直出动作（给坐标） | 图 + 末端位置 + 物体真实坐标 | 会不会控制 |
-| **F** 直出动作（只看图） | 图 + 末端位置 | 视觉定位 + 控制，最接近 VLA |
+| **E** Direct actions (coords given) | Images + end-effector position + true object coordinates | Whether it can control |
+| **F** Direct actions (images only) | Images + end-effector position | Visual localization + control; closest to a VLA |
 
-### 第三轮：定位问题能否靠加视角 / 加推理解决（条件 G、F-high）
+### Round 3: can the localization problem be fixed with another view or more reasoning? (conditions G, F-high)
 
-在 F 上只改一处：
+One change on top of F:
 
-| 条件 | 改动 |
+| Condition | Change |
 |---|---|
-| **G** | 多给一张侧视相机图。其视线与主相机垂直，主相机的"远近"在这张图里是"左右" |
-| **F-high** | 推理档位 low → high，每任务 4 回合 |
+| **G** | Adds a side-view camera image. Its line of sight is perpendicular to the main camera's, so the main camera's "near/far" becomes "left/right" in this image |
+| **F-high** | Reasoning effort low → high; 4 episodes per task |
 
-### 第四轮：抓放以外的任务
+### Round 4: beyond pick-and-place
 
-直出动作接口不变，在 libero_goal 其余 6 个任务上跑 E 和 G。
+Same direct-action interface; E and G on the remaining 6 libero_goal tasks.
 
-## 3. 结果
+## 3. Results
 
-### 3.1 第一轮：规划和 2D 定位没问题，3D 坐标不可用
+### 3.1 Round 1: planning and 2D localization work; metric 3D coordinates do not
 
-| 任务 | A 指像素·有提示 | B 指像素·无提示 | C 报坐标·给答案 | D 报坐标·只看图 |
+| Task | A Pixel + hints | B Pixel, no hints | C xyz, answer given | D xyz, images only |
 |---|:-:|:-:|:-:|:-:|
-| 8 碗→盘子（严） | 9/10 | 2/10 | 10/10 | 0/10 |
-| 1 碗→炉子（松） | 10/10 | 10/10 | 10/10 | 0/10 |
-| 4 碗→柜顶（松） | 10/10 | 10/10 | 10/10 | 0/10 |
-| 6 芝士→碗里（严） | 1/10 | 1/10 | 10/10 | 0/10 |
-| **合计** | **30/40** | **23/40** | **40/40** | **0/40** |
+| 8 bowl→plate (strict) | 9/10 | 2/10 | 10/10 | 0/10 |
+| 1 bowl→stove (loose) | 10/10 | 10/10 | 10/10 | 0/10 |
+| 4 bowl→cabinet top (loose) | 10/10 | 10/10 | 10/10 | 0/10 |
+| 6 cheese→bowl (strict) | 1/10 | 1/10 | 10/10 | 0/10 |
+| **Total** | **30/40** | **23/40** | **40/40** | **0/40** |
 
-- **① 规划没问题（C 40/40）**。知道物体在哪时，它能正确分解步骤、选对抓取部位、算对放置点；抓空后能根据"夹爪合拢后是空的"降低高度重抓。
-- **② 2D 定位基本没问题（A 在任务 8/1/4 上 9–10/10）**。例外是任务 6（1/10）：它指的是碗口在图上的中心，但相机斜视，这条视线穿过碗口落在碗的远侧内壁，换算出的点比碗心偏远约 3.5 cm，芝士落在碗沿上。它每次重试都指同一个像素，不会往近处挪。**图上的中心 ≠ 空间里的中心**；米制反馈能引导它纠错（C），像素反馈不能（A）。
-- **③ 一次性报米制 3D 坐标完全不可用（D 0/40）**。第一次抓取 40 次全部抓空，对碗位置的估计偏 8–25 cm，每次重试给的坐标都在变，结束时物体离目标平均还差 14–27 cm。
-- **物理常识不会主动想到**。B 与 A 在宽松任务上无差别，在严格的任务 8 上从 9/10 掉到 2/10：它把夹爪直接对准盘心（平均误差 0.5 cm），没有补偿"夹碗沿导致的碗心偏移 5 cm"。
+- **① Planning works (C 40/40).** When it knows where objects are, it decomposes the task correctly, picks the right grasp part, and computes the right placement point. After a missed grasp, it infers from "the gripper closed on nothing" that it grasped too high and retries lower.
+- **② 2D localization mostly works (A 9–10/10 on tasks 8/1/4).** The exception is task 6 (1/10). It points at the center of the bowl's opening in the image, but the camera looks down at an angle, so that line of sight passes through the opening and hits the bowl's far inner wall. The resulting 3D point is about 3.5 cm beyond the true center, and the cheese lands on the rim. It points at the same pixel on every retry and never shifts toward the camera. **The center in the image ≠ the center in space.** Metric feedback lets it correct itself (C); pixel feedback does not (A).
+- **③ One-shot metric 3D coordinates are unusable (D 0/40).** All 40 first grasps miss. Its estimates of the bowl's position are off by 8–25 cm and change on every retry. At the end of an episode the object is still 14–27 cm from the target on average.
+- **It doesn't think of physical common sense on its own.** B matches A on the loose tasks but drops from 9/10 to 2/10 on strict task 8. It aims the gripper straight at the plate center (0.5 cm off on average) without compensating for the 5 cm offset caused by holding the rim.
 
-**视频 1**：任务 8：A 成功 / C 成功 / D 夹爪反复落在碗旁空处，失败
+**Video 1**: task 8. A succeeds / C succeeds / D keeps closing the gripper on empty space next to the bowl and fails
 
 <img src="assets/gifs/video01.gif" width="720">
 
-**视频 2**：任务 4：A 成功 / D 失败
+**Video 2**: task 4. A succeeds / D fails
 
 <img src="assets/gifs/video02.gif" width="720">
 
-**视频 3**：任务 8：A 放置时补偿偏移，成功 / B 对准盘心放下，碗落在盘边
+**Video 3**: task 8. A compensates the offset when placing and succeeds / B aims at the plate center and the bowl lands on the plate's edge
 
 <img src="assets/gifs/video03.gif" width="720">
 
-**视频 4**：任务 6：A 芝士落在远侧碗沿 / C 成功 / 真值对照组成功
+**Video 4**: task 6. A drops the cheese on the far rim / C succeeds / ground-truth control succeeds
 
 <img src="assets/gifs/video04.gif" width="720">
 
-**视频 5**：任务 6：C 抓空后降低高度重抓成功 / A 反复指同一像素失败
+**Video 5**: task 6. C misses, retries lower and succeeds / A keeps pointing at the same pixel and fails
 
 <img src="assets/gifs/video05.gif" width="720">
 
-### 3.2 第二轮：GPT-6 会控制，但看不准"远近"
+### 3.2 Round 2: GPT-6 can control, but can't judge near vs. far
 
-| 任务 | E 直出动作·给坐标 | F 直出动作·只看图 |
+| Task | E Direct actions, coords given | F Direct actions, images only |
 |---|:-:|:-:|
-| 8 碗→盘子（严） | 7/10 | 0/10 |
-| 1 碗→炉子（松） | 10/10 | 0/10 |
-| 4 碗→柜顶（松） | 10/10 | 1/10 |
-| 6 芝士→碗里（严） | 10/10 | 1/10 |
-| **合计** | **37/40** | **2/40** |
+| 8 bowl→plate (strict) | 7/10 | 0/10 |
+| 1 bowl→stove (loose) | 10/10 | 0/10 |
+| 4 bowl→cabinet top (loose) | 10/10 | 1/10 |
+| 6 cheese→bowl (strict) | 10/10 | 1/10 |
+| **Total** | **37/40** | **2/40** |
 
-- **会控制（E 37/40）**。知道目标位置时，它自己输出的动作能完成接近、减速、对准碗沿、下降、闭合、抬起、搬运、放下，平均 100–130 步，比第一轮固定控制程序（180–225 步）更少。3 次失败都在任务 8：碗放上盘子但偏离盘心 5.5 cm（阈值 3 cm），它认为已完成。
-- **只看图时误差有方向（F 2/40）**。大多数回合物体根本没被碰到。下图是每回合第一次闭合夹爪时，夹爪相对物体的水平误差：
+- **It can control (E 37/40).** When it knows the target position, its own actions carry out approach, deceleration, rim alignment, descent, closing, lifting, transport and placement, in 100–130 steps on average, fewer than round 1's fixed controller (180–225). All 3 failures are on task 8: the bowl ends up on the plate but 5.5 cm from its center (threshold 3 cm), and GPT-6 declares the task done.
+- **With images only, the error has a direction (F 2/40).** In most episodes the object is never touched. The plot shows the gripper's horizontal error relative to the object at the first gripper close of each episode:
 
-<img src="assets/first_grasp_error.svg" width="640">
+<img src="assets/first_grasp_error_en.svg" width="640">
 
-*横轴：沿主相机纵深方向的误差（正 = 偏向相机）；纵轴：沿图像左右方向的误差（cm）。每个条件 40 个点。F 平均偏向相机 7.2 cm，左右方向只偏 0.3 cm；G 纵深误差降到 1.6 cm；E 为 0.6 cm（E 在碗任务上纵轴分成 ±5 cm 两簇，是有意去夹碗的左沿或右沿）。*
+*x-axis: error along the main camera's depth direction (+ = toward the camera); y-axis: error along the image's left-right direction (cm). 40 points per condition. F lands 7.2 cm toward the camera on average, with only 0.3 cm left-right bias. G's depth error drops to 1.6 cm, E's is 0.6 cm (on the bowl tasks, E's points split into two clusters at ±5 cm because it deliberately grasps the left or right rim).*
 
-它能在图像平面里把夹爪和物体对齐，但分不清夹爪是在物体正上方，还是在物体"前面 7 cm 的半空中"——两者在斜视主相机里几乎一样。它会描述"夹爪在奶油芝士正上方"，实际差了 8 cm。每 10 步看一次新图也纠正不了，因为新图里同样的歧义还在。
+It can align the gripper with the object in the image plane, but it can't tell whether the gripper is directly above the object or hovering 7 cm in front of it. From the oblique main camera, the two look almost the same. It will describe the gripper as "directly above the cream cheese" when it is actually 8 cm off. Seeing a new image every 10 steps doesn't help, because the same ambiguity is in every new image.
 
-这修正了第一轮的结论：不是"3D 定位不行"，而是**单个斜视相机下的纵深判断不行**，左右方向的定位是好的。这也解释了为什么"指像素"能成功：深度图替它解决的正是纵深这一维。
+This refines round 1's conclusion: the problem is not "3D localization" in general but **depth judgment from a single oblique camera**. Left-right localization is good. It also explains why pixel pointing works: the depth map solves exactly the depth dimension for it.
 
-**视频 8**：任务 1：A（固定控制程序）/ E（GPT-6 直出每一步动作），均成功，E 更快
+**Video 8**: task 1. A (fixed controller) / E (GPT-6 outputs every action). Both succeed; E finishes faster
 
 <img src="assets/gifs/video08.gif" width="720">
 
-**视频 6**：任务 8：E 成功 / F 夹爪在碗的靠相机一侧反复闭合，碗未被碰到
+**Video 6**: task 8. E succeeds / F keeps closing the gripper on the camera side of the bowl without touching it
 
 <img src="assets/gifs/video06.gif" width="720">
 
-**视频 7**：任务 6：E 成功 / F 夹爪落在芝士靠相机一侧的空处
+**Video 7**: task 6. E succeeds / F lands on empty space on the camera side of the cheese
 
 <img src="assets/gifs/video07.gif" width="720">
 
-### 3.3 第三轮：加一个正交视角即可解决，加推理作用有限
+### 3.3 Round 3: one orthogonal view fixes it; more reasoning helps little
 
-| 任务 | F 只看图 (low) | F-high 只看图 (high) | G 只看图 + 侧视图 | 参考：E 给坐标 |
+| Task | F images only (low) | F-high images only (high) | G images + side view | Reference: E coords given |
 |---|:-:|:-:|:-:|:-:|
-| 8 碗→盘子（严） | 0/10 | 0/4 | 5/10 | 7/10 |
-| 1 碗→炉子（松） | 0/10 | 1/4 | 10/10 | 10/10 |
-| 4 碗→柜顶（松） | 1/10 | 0/4 | 10/10 | 10/10 |
-| 6 芝士→碗里（严） | 1/10 | 2/4 | 9/10 | 10/10 |
-| **合计** | **2/40 (5%)** | **3/16 (19%)** | **34/40 (85%)** | **37/40 (93%)** |
+| 8 bowl→plate (strict) | 0/10 | 0/4 | 5/10 | 7/10 |
+| 1 bowl→stove (loose) | 0/10 | 1/4 | 10/10 | 10/10 |
+| 4 bowl→cabinet top (loose) | 1/10 | 0/4 | 10/10 | 10/10 |
+| 6 cheese→bowl (strict) | 1/10 | 2/4 | 9/10 | 10/10 |
+| **Total** | **2/40 (5%)** | **3/16 (19%)** | **34/40 (85%)** | **37/40 (93%)** |
 
-| 首次闭合夹爪时的误差 | 沿主相机纵深 | 沿图像左右 |
+| Error at first gripper close | Along main-camera depth | Along image left-right |
 |---|:-:|:-:|
-| F (low) | 7.2 cm（偏向相机） | 0.3 cm |
+| F (low) | 7.2 cm (toward camera) | 0.3 cm |
 | F-high | 3.5 cm | 2.0 cm |
-| G（+ 侧视图） | **1.6 cm** | 1.9 cm |
-| E（给坐标） | 0.6 cm | 2.0 cm |
+| G (+ side view) | **1.6 cm** | 1.9 cm |
+| E (coords given) | 0.6 cm | 2.0 cm |
 
-- **诊断成立：瓶颈是单目纵深歧义**。加一张正交视角图，成功率 5% → 85%，纵深误差 7.2 → 1.6 cm，接近直接给坐标的 93%。也就是说，GPT-6 只看图、直出电机动作、不给任何坐标或深度，就能完成这四个任务。
-- **提高推理档位帮助有限**。high 档 19%，纵深误差减半但仍有 3.5 cm，每次调用的推理 token 从约 80 升到约 210。样本只有 16 回合，只能说远不如加视角有效。
-- **剩余失败集中在容差严的任务 8**。G 在任务 8 的 5 次失败中有 4 次是碗放上了盘子、偏离盘心 3.2–4.1 cm（阈值 3 cm）且它宣布完成。与 E 的失败原因相同，属于放置精度和"不核查是否满足条件"的问题，不是定位问题。
+- **The diagnosis holds: the bottleneck is monocular depth ambiguity.** One orthogonal view raises success from 5% to 85% and cuts depth error from 7.2 to 1.6 cm, close to the 93% achieved when coordinates are given. In other words, from images alone, outputting raw motor actions, with no coordinates or depth provided, GPT-6 completes all four tasks.
+- **Higher reasoning effort helps little.** High effort reaches 19%; depth error halves but is still 3.5 cm, while reasoning tokens per call rise from about 80 to about 210. With only 16 episodes, the safe conclusion is that it is far less effective than adding a view.
+- **The remaining failures concentrate on strict task 8.** 4 of G's 5 failures on task 8 put the bowl on the plate 3.2–4.1 cm from center (threshold 3 cm) and declare done. E's task-8 failures have the same cause. This is placement precision plus "not checking whether the condition is actually met", not a localization problem.
 
-**视频 9**：任务 1：F 失败 / G 成功（视频显示主相机画面）
+**Video 9**: task 1. F fails / G succeeds (the video shows the main camera)
 
 <img src="assets/gifs/video09.gif" width="720">
 
-**视频 10**：任务 6：F 失败 / G 成功
+**Video 10**: task 6. F fails / G succeeds
 
 <img src="assets/gifs/video10.gif" width="720">
 
-**视频 11**：任务 8，G 的两个回合：成功 / 碗偏离盘心 3.3 cm，它认为已完成
+**Video 11**: task 8, two G episodes. Success / bowl 3.3 cm off the plate center while GPT-6 considers the task done
 
 <img src="assets/gifs/video11.gif" width="720">
 
-### 3.4 第四轮：抓放以外的任务
+### 3.4 Round 4: beyond pick-and-place
 
-| 任务 | 类型 | E 给坐标 | G 只看图 + 侧视图 |
+| Task | Type | E coords given | G images + side view |
 |---|---|:-:|:-:|
-| 2 酒瓶→柜顶 | 抓放（细长物体） | 10/10 | 8/10 |
-| 9 酒瓶→架子 | 抓放（细长物体） | 9/10 | 7/10 |
-| 7 开炉子 | 按压小旋钮 | 10/10 | 4/10 |
-| 5 推盘子到炉子前 | 非抓取的推 | 5/10 | 0/9 |
-| 0 开中间抽屉 | 铰接物体 | 0/10 | 0/9 |
-| 3 开顶层抽屉并放入碗 | 铰接物体，两阶段 | 0/10 | 0/9 |
-| **libero_goal 全部 10 个任务** | | **71/100** | **53/97** |
+| 2 wine bottle→cabinet top | Pick-place (slender object) | 10/10 | 8/10 |
+| 9 wine bottle→rack | Pick-place (slender object) | 9/10 | 7/10 |
+| 7 turn on stove | Press a small knob | 10/10 | 4/10 |
+| 5 push plate to front of stove | Non-prehensile push | 5/10 | 0/9 |
+| 0 open middle drawer | Articulated object | 0/10 | 0/9 |
+| 3 open top drawer and put bowl in | Articulated object, two stages | 0/10 | 0/9 |
+| **All 10 libero_goal tasks** | | **71/100** | **53/97** |
 
-- **控制能力可推广到其他抓放和按压**：酒瓶两个任务和开炉子，给坐标时 29/30；酒瓶任务只需 8–9 次调用、70–85 步。
-- **开抽屉完全不行，且不是定位问题**：给不给坐标都是 0。夹爪始终竖直朝下，反复从柜子上方下降、被柜体挡住、抬起、换位置再降，从未碰到把手，抽屉位置在所有回合中都没变。抓柜子正面的把手需要从侧面接近或转动手腕，它没有这样做（提示词中"除非需要否则旋转量保持 0"可能也抑制了这一点）。
-- **推（非抓取）不稳**：给坐标也只有 5/10，失败时盘子被推动但没到目标区域。
-- **只看图时目标越小越难**：开炉子 10/10 → 4/10，需要碰到一个很小的旋钮。
+- **Control generalizes to other pick-place and pressing tasks**: the two wine-bottle tasks and turning on the stove reach 29/30 with coordinates given. The wine-bottle tasks take only 8–9 calls and 70–85 steps.
+- **Drawer opening fails completely, and it is not a localization problem**: 0 with or without coordinates. The gripper always points straight down; it repeatedly descends from above the cabinet, hits the cabinet body, lifts, moves, and descends again. It never touches the handle, and the drawer never moves in any episode. Reaching a handle on the front of the cabinet requires approaching from the side or rotating the wrist, which it never does (the prompt's "keep rotations at 0 unless needed" may also discourage this).
+- **Pushing is unreliable**: only 5/10 even with coordinates. In failed episodes the plate moves but doesn't reach the target region.
+- **With images only, smaller targets are harder**: turning on the stove drops from 10/10 to 4/10 because it has to hit a very small knob.
 
-**视频 14**：任务 2（酒瓶放柜顶）：E、G 均成功
+**Video 14**: task 2 (wine bottle to cabinet top). E and G both succeed
 
 <img src="assets/gifs/video14.gif" width="720">
 
-**视频 12**：任务 7（开炉子）：E 成功 / G 成功 / G 失败，夹爪落在旋钮旁
+**Video 12**: task 7 (turn on stove). E succeeds / G succeeds / G fails, gripper lands next to the knob
 
 <img src="assets/gifs/video12.gif" width="720">
 
-**视频 13**：任务 0（开抽屉）：E、G 均失败，始终没碰到把手
+**Video 13**: task 0 (open drawer). E and G both fail, never touching the handle
 
 <img src="assets/gifs/video13.gif" width="720">
 
-**视频 15**：任务 5（推盘子），均为 E：成功 / 盘子被推动但未到目标
+**Video 15**: task 5 (push plate), both E. Success / plate moves but misses the target
 
 <img src="assets/gifs/video15.gif" width="720">
 
-### 3.5 能力边界汇总
+### 3.5 Summary of capability boundaries
 
-| 能力 | 结果 | 依据 |
+| Ability | Result | Evidence |
 |---|---|---|
-| 规划（任务分解、抓取部位） | 会 | C 40/40 |
-| 2D 图上指点 | 会；斜视下"图上中心"与"空间中心"会混淆 | A 30/40；任务 6 A 1/10 |
-| 一次性报米制 3D 坐标 | 不会 | D 0/40 |
-| 单目纵深判断 | 不会，平均偏向相机 7.2 cm | F 2/40 |
-| 双视角定位 | 基本会 | G 34/40 |
-| 底层控制（自由空间接近、抓取、搬运、放置、按压） | 会 | E 37/40；其他抓放/按压 29/30 |
-| 需规划接近方向的操作（抽屉把手） | 不会 | E、G 均 0 |
-| 持续接触控制（推） | 一半 | E 5/10 |
-| 隐含物理几何（夹碗沿后碗心偏移） | 不会主动想到，仅在严格任务上致命 | 任务 8：A 9/10 → B 2/10 |
-| 可见推理链 | 拿不到，只有一两行小标题 | high 档 + detailed summary 实测 |
+| Planning (task decomposition, grasp part selection) | Yes | C 40/40 |
+| 2D pointing in the image | Yes; under an oblique view it confuses "image center" with "spatial center" | A 30/40; task 6 A 1/10 |
+| One-shot metric 3D coordinates | No | D 0/40 |
+| Monocular depth judgment | No; lands 7.2 cm toward the camera on average | F 2/40 |
+| Two-view localization | Mostly yes | G 34/40 |
+| Low-level control (free-space approach, grasp, transport, place, press) | Yes | E 37/40; other pick-place/press 29/30 |
+| Tasks requiring a planned approach direction (drawer handles) | No | E and G both 0 |
+| Sustained-contact control (pushing) | Half | E 5/10 |
+| Implicit physical geometry (bowl offset when held by rim) | Doesn't think of it; only fatal on strict tasks | Task 8: A 9/10 → B 2/10 |
+| Visible chain of thought | Not available; only one or two summary headings | Tested with high effort + detailed summary |
 
-## 4. 与相关工作的对比
+## 4. Comparison with related work
 
-### 银河通用《GPT 6 Astra as an Embodied Policy》
+### Galbot, *GPT 6 Astra as an Embodied Policy*
 
-他们同样经 Codex 调用 GPT-6 Astra（xhigh 档，允许读文件、跑代码、记笔记），输入头部和双腕相机 RGB、关节与末端状态、指令、历史，不给物体真值坐标。Direct 模式输出双臂末端目标位姿，每次执行 1–5 步，经逆运动学执行；Hybrid 模式由 π0.5 出 50 步候选动作，GPT-6 选择沿用前 1–15 步或自己给 1–5 步修正。
+They also call GPT-6 Astra through Codex (xhigh effort, allowed to read files, run code and take notes). Inputs are head and dual-wrist RGB, joint and end-effector state, the instruction and history, with no ground-truth object coordinates. Direct mode outputs dual-arm end-effector target poses, executing 1–5 steps at a time through inverse kinematics. Hybrid mode has π0.5 propose 50 candidate steps; GPT-6 either keeps the first 1–15 or supplies 1–5 corrective steps itself.
 
-**他们报告的结果**
+**Their reported results**
 
-| 结论 | 数字 |
+| Finding | Numbers |
 |---|---|
-| Direct 零样本能完成操作，语义抓放任务上接近全成功 | RoboLab（单臂）49/50；RoboDojo（双臂长程）26% |
-| 长程双臂任务上 Hybrid > Direct > π0.5 单独 | 48% / 26% / 15.67%；GPT 只改 14.4% 的控制步；token 少 44.8% |
-| 下层 VLA 未在该任务微调时，Hybrid 反而略差 | RoboLab：Direct 98%，Hybrid 92%，π0.5 36% |
-| 失败模式：反复抓取失败、容器边缘碰撞、难以把本体状态转成可达的末端目标等 | 定性，无比例统计 |
-| 未做归因："各因素分别贡献多少，仍需要进一步分解" | — |
+| Direct mode works zero-shot, near-perfect on semantic pick-place | RoboLab (single arm) 49/50; RoboDojo (bimanual long-horizon) 26% |
+| On long-horizon bimanual tasks, Hybrid > Direct > π0.5 alone | 48% / 26% / 15.67%; GPT changes only 14.4% of control steps; 44.8% fewer tokens |
+| Hybrid is slightly worse when the lower-level VLA isn't fine-tuned on the task | RoboLab: Direct 98%, Hybrid 92%, π0.5 36% |
+| Failure modes: repeated failed grasps, container-edge collisions, difficulty turning proprioceptive state into reachable end-effector targets, etc. | Qualitative, no rates |
+| No attribution: "how much each factor contributes still needs further decomposition" | — |
 
-**本项目补充的**
+**What this project adds**
 
-| 发现 | 依据 |
+| Finding | Evidence |
 |---|---|
-| 把能力拆成规划 / 2D 定位 / 3D 定位 / 控制分别测量，并用真值对照组排除控制程序的影响 | C 40/40、A 30/40、D 0/40、E 37/40、F 2/40、对照组 40/40 |
-| 知道目标位置时直出 7 维动作 37/40，步数少于手写控制程序 | 条件 E |
-| 视觉定位误差有方向：沿相机纵深平均偏 7.2 cm，左右无偏；加正交视角即可解决（5% → 85%），提高推理档位作用有限（19%） | 条件 F、G、F-high |
-| 一次性报米制坐标完全不可用 | 条件 D 0/40 |
-| 图上的中心 ≠ 空间里的中心；米制反馈能引导纠错，像素反馈不能 | 任务 6：A 1/10，C 10/10 |
-| 隐含物理几何不会主动想到 | 任务 8：A 9/10 → B 2/10 |
-| 开抽屉失败与定位无关，与他们报告的"容器边缘碰撞""难以转成可达末端目标"是同一类失败 | 任务 0、3：E、G 均 0 |
+| Separates planning / 2D localization / 3D localization / control and measures each, with a ground-truth control ruling out the controller | C 40/40, A 30/40, D 0/40, E 37/40, F 2/40, control 40/40 |
+| With the target position known, direct 7-D actions reach 37/40 in fewer steps than a hand-written controller | Condition E |
+| Visual localization error is directional: 7.2 cm along camera depth, unbiased left-right. An orthogonal view fixes it (5% → 85%); higher reasoning effort helps little (19%) | Conditions F, G, F-high |
+| One-shot metric coordinates are entirely unusable | Condition D 0/40 |
+| The center in the image ≠ the center in space; metric feedback enables correction, pixel feedback doesn't | Task 6: A 1/10, C 10/10 |
+| Implicit physical geometry isn't anticipated | Task 8: A 9/10 → B 2/10 |
+| Drawer failure is unrelated to localization, and is the same class of failure as their "container-edge collisions" and "difficulty reaching end-effector targets" | Tasks 0, 3: E and G both 0 |
 
-**表面矛盾的解释**：他们的 Direct 只看图在 RoboLab 抓放上 49/50，本项目最接近的条件 F 只有 2/40。两边都是闭环、只看图、不给坐标，剩下四个差异：推理档位（xhigh vs low）、相机（头部 + 两个腕部 vs 一个斜视主相机 + 一个腕部）、是否允许跑代码和记笔记、每段步数（1–5 vs 10）。第三轮检验了其中两个：加一个正交视角 5% → 85%，提高推理档位只到 19%，因此**相机布置是主要因素**。代码能力和每段步数尚未单独测。
+**Explaining the apparent contradiction**: their images-only Direct mode scores 49/50 on RoboLab pick-place, while this project's closest condition, F, scores 2/40. Both are closed-loop, images-only, with no coordinates. Four differences remain: reasoning effort (xhigh vs. low), cameras (head + two wrist vs. one oblique main + one wrist), whether code execution and note-taking are allowed, and steps per chunk (1–5 vs. 10). Round 3 tested two of them: adding an orthogonal view took us from 5% to 85%, while higher effort only reached 19%, so **camera placement is the main factor**. Code execution and chunk length have not been tested separately.
 
 ### FluxVLA issue #121
 
-第一轮的结论（GPT-6 完成操作靠的是规划和 2D 图像理解，给不出可用的米制 3D 坐标）与该 issue 报告的现象一致。本项目在 4 个任务、40 个回合上定量复现了它（条件 D 0/40），并进一步把问题定位到纵深这一维。
+Round 1's conclusion (GPT-6 manipulates through planning and 2D image understanding and cannot give usable metric 3D coordinates) matches the phenomenon reported in this issue. This project reproduces it quantitatively over 4 tasks and 40 episodes (condition D 0/40), and further narrows the problem down to the depth dimension.
 
-## 5. 局限
+## 5. Limitations
 
-- 每个条件每个任务只有 10 回合。0/40 对 40/40 的差距可靠；A、B 中单格数字波动较大（任务 8 条件 B 在调整控制程序前后分别为 6/10 和 2/10），不宜对单格小差异下结论。
-- 第一轮（A–D）只测了 4 个抓放任务；其余 6 个任务只在直出动作接口下测过。
-- 开抽屉任务中，条件 E 给的是抽屉本体中心而非把手的坐标（仿真器中把手没有单独命名），所以这两个任务上的 E 不是严格意义的"给了目标位置"。
-- GPT-6 通过 Codex 调用，每次调用自带 Codex 的系统提示，与直接调 API 的裸模型不完全等同。
-- 除 F-high 外全部使用最低推理档位；F-high 每任务只有 4 回合。
-- F 的纵深误差数值依赖于这一个斜视主相机的布置。
-- 没有与上一代 GPT 或开源模型对比，不能说这些能力是 GPT-6 新出现的。
+- Only 10 episodes per condition per task. The 0/40 vs. 40/40 gaps are reliable; individual cells in A and B vary considerably (task 8 condition B scored 6/10 and 2/10 before and after a controller change), so small per-cell differences shouldn't be over-interpreted.
+- Round 1 (A–D) covers only 4 pick-place tasks; the other 6 tasks were only tested with the direct-action interface.
+- In the drawer tasks, condition E is given the drawer body's center rather than the handle's coordinates (the handle has no separate name in the simulator), so E there is not strictly "given the target position".
+- GPT-6 is called through Codex, so each call carries Codex's system prompt; this is not identical to the bare model via the API.
+- Everything except F-high uses the lowest reasoning effort; F-high has only 4 episodes per task.
+- F's depth error depends on this particular oblique main-camera placement.
+- There is no comparison with previous GPT generations or open-source models, so these abilities can't be claimed as new to GPT-6.
 
-## 仓库内容
+## Repository contents
 
 ```
-README.md                      本报告
-code/                          实验代码，复现方法见 code/README.md
-results/success_rates.csv      全部条件 × 任务的成功次数
-assets/task8_grasp_points.jpg  任务 8 三个条件的抓取点对比
-assets/first_grasp_error.svg   首次闭合夹爪时的误差散点图
-assets/gifs/video01-15.gif     对照动图（3 倍速，画面顶部标注条件与结果）
+README.md                         This report (English)
+README_zh.md                      This report (Chinese)
+code/                             Experiment code; see code/README.md to reproduce
+results/success_rates.csv         Success counts for every condition × task
+assets/task8_grasp_points.jpg     Grasp points of three conditions on task 8
+assets/first_grasp_error_en.svg   Scatter plot of error at first gripper close
+assets/gifs/video01-15.gif        Comparison clips (3× speed, condition and outcome labeled at top)
 ```
