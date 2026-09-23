@@ -1,0 +1,10 @@
+condition	args	label	expected_tasks_8_1_4_6
+oracle	--policy oracle --interface r3	Ground-truth baseline	10 10 10 10
+prim_coords	--interface r2 --oracle-state	Primitives · coordinates [C]	10 10 10 10
+prim_pixel	--interface r3 --prompt-style full	Primitives · pixel [A]	9 10 10 1
+prim_pixel_nohint	--interface r3 --prompt-style nohint	Primitives · pixel, no hints [B]	2 10 10 1
+prim_xyz_vision	--interface r2	Primitives · xyz from images [D]	0 0 0 0
+act_coords	--interface r1 --oracle-state --max-calls 40 --max-steps 450 --chunk 10	Raw actions · coordinates [E]	7 10 10 10
+act_vision	--interface r1 --max-calls 40 --max-steps 450 --chunk 10	Raw actions · images only [F]	0 0 1 1
+act_vision_side	--interface r1 --max-calls 40 --max-steps 450 --chunk 10 --extra-cams sideview	Raw actions · images + side view [G]	5 10 10 9
+act_vision_high	--interface r1 --max-calls 40 --max-steps 450 --chunk 10 --effort high	Raw actions · images only, high effort [F-high] (4 episodes)	0/4 1/4 0/4 2/4

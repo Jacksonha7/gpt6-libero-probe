@@ -18,6 +18,7 @@ GPT-6 is called through `codex exec` (using a ChatGPT subscription, no API key n
 | `upload_wandb.py` | Uploads runs to wandb (rollout videos + per-call tables); optional |
 | `run_ablation.sh` | Runs conditions A–D in parallel on one task |
 | `run_r1.sh` | Batch runs of the direct-action conditions (E/F/G/F-high) |
+| `run_condition.sh` + `conditions.tsv` | Run any condition by name; lists arguments and expected results |
 | `slurm/*.sbatch` | Slurm job templates (fill in your partition) |
 
 Code comments are in Chinese.
@@ -35,30 +36,39 @@ source env.sh
 $PY test_geom.py libero_goal 8        # check $PROBE_OUT/test/proj_*.png: red circles should sit on the objects
 ```
 
-## Commands for each condition in the report
+## Running a condition
 
-Task 8 shown; each command runs 10 episodes. libero_goal task ids: 0 open middle drawer · 1 bowl→stove · 2 wine bottle→cabinet top · 3 open top drawer and put bowl in · 4 bowl→cabinet top · 5 push plate · 6 cream cheese→bowl · 7 turn on stove · 8 bowl→plate · 9 wine bottle→rack.
+Every condition in the report has a name, its `probe.py` arguments and its expected result in [`conditions.tsv`](conditions.tsv):
 
-| Condition | Arguments |
-|---|---|
-| A Pixel + hints | `--interface r3 --prompt-style full` |
-| B Pixel, no hints | `--interface r3 --prompt-style nohint` |
-| C Metric xyz + true coords | `--interface r2 --oracle-state` |
-| D Metric xyz, images only | `--interface r2` |
-| Ground-truth control | `--policy oracle --rim-offset 0.06 --rim-height 0.04 --oracle-release 3` (task 8; set `--oracle-grasp/--oracle-place` for other tasks) |
-| E Direct actions + true coords | `--interface r1 --oracle-state --max-calls 40 --max-steps 450 --chunk 10` |
-| F Direct actions, images only | `--interface r1 --max-calls 40 --max-steps 450 --chunk 10` |
-| G F + side view | F's arguments + `--extra-cams sideview` |
-| F-high | F's arguments + `--effort high --episodes 4` |
+| Condition | Report label | Expected successes on tasks 8 / 1 / 4 / 6 (10 episodes each) |
+|---|---|---|
+| `oracle` | Ground-truth baseline | 10 / 10 / 10 / 10 |
+| `prim_coords` | Primitives · coordinates [C] | 10 / 10 / 10 / 10 |
+| `prim_pixel` | Primitives · pixel [A] | 9 / 10 / 10 / 1 |
+| `prim_pixel_nohint` | Primitives · pixel, no hints [B] | 2 / 10 / 10 / 1 |
+| `prim_xyz_vision` | Primitives · xyz from images [D] | 0 / 0 / 0 / 0 |
+| `act_coords` | Raw actions · coordinates [E] | 7 / 10 / 10 / 10 |
+| `act_vision` | Raw actions · images only [F] | 0 / 0 / 1 / 1 |
+| `act_vision_side` | Raw actions · images + side view [G] | 5 / 10 / 10 / 9 |
+| `act_vision_high` | Raw actions · images only, high effort [F-high] | 0/4 / 1/4 / 0/4 / 2/4 |
 
 ```bash
-# Conditions A–D, four processes in parallel
-bash run_ablation.sh 8 10 abl
-# Conditions E/F; a 5th argument can add --extra-cams sideview (G) or --effort high (F-high)
-bash run_r1.sh "8 1 4 6" 10 r1 "state vision"
-# Summarize
-$PY analyze.py abl_
+bash run_condition.sh act_vision_side 1 10     # condition, task id, episodes
+$PY analyze.py act_vision_side                 # summarize all runs with this prefix
 ```
+
+Minimal smoke test (the first command makes no model calls):
+
+```bash
+bash run_condition.sh oracle 8 2               # expect 2/2: checks rendering, geometry and controller
+bash run_condition.sh prim_coords 8 2          # usually 2/2: checks the codex connection
+```
+
+Results for the other six tasks (raw-action conditions only) are in [`../results/success_rates.csv`](../results/success_rates.csv). With 10 episodes per cell, expect a few episodes of variation per cell, especially for `prim_pixel_nohint`. The `oracle` object/offset settings in `run_condition.sh` are reconstructed from the experiment notes and may differ slightly from the runs in the report.
+
+libero_goal task ids: 0 open middle drawer · 1 bowl→stove · 2 wine bottle→cabinet top · 3 open top drawer and put bowl in · 4 bowl→cabinet top · 5 push plate · 6 cream cheese→bowl · 7 turn on stove · 8 bowl→plate · 9 wine bottle→rack.
+
+`run_ablation.sh` and `run_r1.sh` are the batch scripts originally used for the report; they produce the same runs under different names.
 
 Exploratory interfaces not covered in the report: `--interface r1abs` (absolute target positions), `--wrist-hint` (encourages using the wrist camera to check alignment), `--history-images N` (attaches main-camera images from the previous N calls).
 

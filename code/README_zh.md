@@ -18,6 +18,7 @@ GPT-6 经 `codex exec` 调用（走 ChatGPT 订阅，不需要 API key），在 
 | `upload_wandb.py` | 把 run 上传到 wandb（回放视频 + 逐次调用表），可选 |
 | `run_ablation.sh` | 一个任务上并行跑条件 A–D |
 | `run_r1.sh` | 批量跑直出动作条件（E/F/G/F-high） |
+| `run_condition.sh` + `conditions.tsv` | 按条件名运行；列出参数和预期结果 |
 | `slurm/*.sbatch` | Slurm 作业模板（分区需自行填写） |
 
 ## 环境
@@ -33,30 +34,39 @@ source env.sh
 $PY test_geom.py libero_goal 8        # 看 $PROBE_OUT/test/proj_*.png，红圈应落在物体上
 ```
 
-## 报告中各条件对应的命令
+## 运行某个条件
 
-以任务 8 为例，每条命令跑 10 回合。libero_goal 任务号：0 开中间抽屉 · 1 碗→炉子 · 2 酒瓶→柜顶 · 3 开顶层抽屉放碗 · 4 碗→柜顶 · 5 推盘子 · 6 奶油芝士→碗 · 7 开炉子 · 8 碗→盘子 · 9 酒瓶→架子。
+报告中每个条件的名字、`probe.py` 参数和预期结果都在 [`conditions.tsv`](conditions.tsv)：
 
-| 条件 | 命令参数 |
-|---|---|
-| A 指像素 + 提示 | `--interface r3 --prompt-style full` |
-| B 指像素、无提示 | `--interface r3 --prompt-style nohint` |
-| C 报米制坐标 + 真值坐标 | `--interface r2 --oracle-state` |
-| D 报米制坐标、只看图 | `--interface r2` |
-| 真值对照组 | `--policy oracle --rim-offset 0.06 --rim-height 0.04 --oracle-release 3`（任务 8；其他任务改 `--oracle-grasp/--oracle-place`） |
-| E 直出动作 + 真值坐标 | `--interface r1 --oracle-state --max-calls 40 --max-steps 450 --chunk 10` |
-| F 直出动作、只看图 | `--interface r1 --max-calls 40 --max-steps 450 --chunk 10` |
-| G F + 侧视图 | F 的参数 + `--extra-cams sideview` |
-| F-high | F 的参数 + `--effort high --episodes 4` |
+| 条件 | 报告中的名称 | 任务 8 / 1 / 4 / 6 的预期成功次数（各 10 回合） |
+|---|---|---|
+| `oracle` | 真值基线 | 10 / 10 / 10 / 10 |
+| `prim_coords` | 原语 · 给坐标 [C] | 10 / 10 / 10 / 10 |
+| `prim_pixel` | 原语 · 指像素 [A] | 9 / 10 / 10 / 1 |
+| `prim_pixel_nohint` | 原语 · 指像素、无提示 [B] | 2 / 10 / 10 / 1 |
+| `prim_xyz_vision` | 原语 · 从图估计 xyz [D] | 0 / 0 / 0 / 0 |
+| `act_coords` | 直出动作 · 给坐标 [E] | 7 / 10 / 10 / 10 |
+| `act_vision` | 直出动作 · 只看图 [F] | 0 / 0 / 1 / 1 |
+| `act_vision_side` | 直出动作 · 看图 + 侧视图 [G] | 5 / 10 / 10 / 9 |
+| `act_vision_high` | 直出动作 · 只看图、高推理档 [F-high] | 0/4 / 1/4 / 0/4 / 2/4 |
 
 ```bash
-# 条件 A–D，四个进程并行
-bash run_ablation.sh 8 10 abl
-# 条件 E/F；第 5 个参数可加 --extra-cams sideview（G）或 --effort high（F-high）
-bash run_r1.sh "8 1 4 6" 10 r1 "state vision"
-# 汇总
-$PY analyze.py abl_
+bash run_condition.sh act_vision_side 1 10     # 条件名、任务号、回合数
+$PY analyze.py act_vision_side                 # 汇总该前缀的所有 run
 ```
+
+最小冒烟测试（第一条不调用模型）：
+
+```bash
+bash run_condition.sh oracle 8 2               # 预期 2/2：检查渲染、几何和控制程序
+bash run_condition.sh prim_coords 8 2          # 通常 2/2：检查 codex 连接
+```
+
+其余六个任务的结果（只有直出动作条件）见 [`../results/success_rates.csv`](../results/success_rates.csv)。每格只有 10 回合，重跑时每格有几个回合的波动是正常的，`prim_pixel_nohint` 尤其明显。`run_condition.sh` 里 `oracle` 的物体与偏移设置是根据实验记录重建的，可能与报告中的 run 略有差异。
+
+libero_goal 任务号：0 开中间抽屉 · 1 碗→炉子 · 2 酒瓶→柜顶 · 3 开顶层抽屉放碗 · 4 碗→柜顶 · 5 推盘子 · 6 奶油芝士→碗 · 7 开炉子 · 8 碗→盘子 · 9 酒瓶→架子。
+
+`run_ablation.sh` 和 `run_r1.sh` 是报告实验当时用的批量脚本，产生的是同样的 run，只是命名不同。
 
 未写进报告的探索性接口：`--interface r1abs`（绝对目标位置）、`--wrist-hint`（鼓励用腕部相机检查对准）、`--history-images N`（附上前 N 次调用的主相机图）。
 
