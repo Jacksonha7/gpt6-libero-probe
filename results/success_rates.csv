@@ -1,0 +1,49 @@
+round,condition,description,task_id,task,successes,episodes
+1,A,pixel pointing + hints,8,bowl->plate,9,10
+1,A,pixel pointing + hints,1,bowl->stove,10,10
+1,A,pixel pointing + hints,4,bowl->cabinet top,10,10
+1,A,pixel pointing + hints,6,cream cheese->bowl,1,10
+1,B,pixel pointing no hints,8,bowl->plate,2,10
+1,B,pixel pointing no hints,1,bowl->stove,10,10
+1,B,pixel pointing no hints,4,bowl->cabinet top,10,10
+1,B,pixel pointing no hints,6,cream cheese->bowl,1,10
+1,C,metric coords + GT object coords,8,bowl->plate,10,10
+1,C,metric coords + GT object coords,1,bowl->stove,10,10
+1,C,metric coords + GT object coords,4,bowl->cabinet top,10,10
+1,C,metric coords + GT object coords,6,cream cheese->bowl,10,10
+1,D,metric coords from images only,8,bowl->plate,0,10
+1,D,metric coords from images only,1,bowl->stove,0,10
+1,D,metric coords from images only,4,bowl->cabinet top,0,10
+1,D,metric coords from images only,6,cream cheese->bowl,0,10
+1,oracle,GT positions + same controller,8,bowl->plate,10,10
+1,oracle,GT positions + same controller,1,bowl->stove,10,10
+1,oracle,GT positions + same controller,4,bowl->cabinet top,10,10
+1,oracle,GT positions + same controller,6,cream cheese->bowl,10,10
+2,E,direct actions + GT object coords,8,bowl->plate,7,10
+2,E,direct actions + GT object coords,1,bowl->stove,10,10
+2,E,direct actions + GT object coords,4,bowl->cabinet top,10,10
+2,E,direct actions + GT object coords,6,cream cheese->bowl,10,10
+2,F,direct actions images only,8,bowl->plate,0,10
+2,F,direct actions images only,1,bowl->stove,0,10
+2,F,direct actions images only,4,bowl->cabinet top,1,10
+2,F,direct actions images only,6,cream cheese->bowl,1,10
+3,F-high,F + high reasoning effort,8,bowl->plate,0,4
+3,F-high,F + high reasoning effort,1,bowl->stove,1,4
+3,F-high,F + high reasoning effort,4,bowl->cabinet top,0,4
+3,F-high,F + high reasoning effort,6,cream cheese->bowl,2,4
+3,G,F + side-view camera,8,bowl->plate,5,10
+3,G,F + side-view camera,1,bowl->stove,10,10
+3,G,F + side-view camera,4,bowl->cabinet top,10,10
+3,G,F + side-view camera,6,cream cheese->bowl,9,10
+4,E,direct actions + GT object coords,2,wine bottle->cabinet top,10,10
+4,E,direct actions + GT object coords,9,wine bottle->rack,9,10
+4,E,direct actions + GT object coords,7,turn on stove,10,10
+4,E,direct actions + GT object coords,5,push plate to stove front,5,10
+4,E,direct actions + GT object coords,0,open middle drawer,0,10
+4,E,direct actions + GT object coords,3,open top drawer + put bowl,0,10
+4,G,F + side-view camera,2,wine bottle->cabinet top,8,10
+4,G,F + side-view camera,9,wine bottle->rack,7,10
+4,G,F + side-view camera,7,turn on stove,4,10
+4,G,F + side-view camera,5,push plate to stove front,0,9
+4,G,F + side-view camera,0,open middle drawer,0,9
+4,G,F + side-view camera,3,open top drawer + put bowl,0,9
