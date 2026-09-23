@@ -18,7 +18,7 @@ GPT-6 经 `codex exec` 调用（走 ChatGPT 订阅，不需要 API key），在 
 | `upload_wandb.py` | 把 run 上传到 wandb（回放视频 + 逐次调用表），可选 |
 | `run_ablation.sh` | 一个任务上并行跑条件 A–D |
 | `run_r1.sh` | 批量跑直出动作条件（E/F/G/F-high） |
-| `run_condition.sh` + `conditions.tsv` | 按条件名运行；列出参数和预期结果 |
+| `run_condition.sh` + `conditions.tsv` | 按条件名运行；列出参数、报告中的结果和各配置的来源 |
 | `slurm/*.sbatch` | Slurm 作业模板（分区需自行填写） |
 
 ## 环境
@@ -36,9 +36,9 @@ $PY test_geom.py libero_goal 8        # 看 $PROBE_OUT/test/proj_*.png，红圈�
 
 ## 运行某个条件
 
-报告中每个条件的名字、`probe.py` 参数和预期结果都在 [`conditions.tsv`](conditions.tsv)：
+报告中每个条件的名字、`probe.py` 参数、报告中的成功次数和配置来源都在 [`conditions.tsv`](conditions.tsv)：
 
-| 条件 | 报告中的名称 | 任务 8 / 1 / 4 / 6 的预期成功次数（各 10 回合） |
+| 条件 | 报告中的名称 | 报告中任务 8 / 1 / 4 / 6 的成功次数（各 10 回合） |
 |---|---|---|
 | `oracle` | 真值基线 | 10 / 10 / 10 / 10 |
 | `prim_coords` | 原语 · 给坐标 [C] | 10 / 10 / 10 / 10 |
@@ -55,14 +55,21 @@ bash run_condition.sh act_vision_side 1 10     # 条件名、任务号、回合�
 $PY analyze.py act_vision_side                 # 汇总该前缀的所有 run
 ```
 
+**历史配置与重建配置。** 上表的次数来自当时的原始运行，还没有用本仓库重跑过，应当看作参考值，而不是已验证的预期结果。
+
+- 模型条件（`prim_*`、`act_*`）：参数与当时的批量脚本 `run_ablation.sh`、`run_r1.sh` 完全相同。代码是项目的最终版本；较早的一些运行用的是更早版本的动作原语控制程序（例如任务 8 上的 `prim_pixel_nohint`，改控制程序前是 6/10，改后是 2/10）。
+- `oracle`：`run_condition.sh` 里各任务的物体名和抓取偏移是根据实验记录重建的，可能与报告中的基线运行不同。
+
+**防错检查。** `probe.py` 出错时 `run_condition.sh` 会以非零状态退出。`probe.py` 会把本次配置写进 run 目录的 `config.json`；如果目录里已有回合是用不同配置跑的，它会拒绝续跑，避免改了参数后新旧回合混在一起。遇到这种情况，换一个 `--run-name` 或删掉该目录。
+
 最小冒烟测试（第一条不调用模型）：
 
 ```bash
-bash run_condition.sh oracle 8 2               # 预期 2/2：检查渲染、几何和控制程序
+bash run_condition.sh oracle 8 2               # 检查渲染、几何和动作原语控制程序
 bash run_condition.sh prim_coords 8 2          # 通常 2/2：检查 codex 连接
 ```
 
-其余六个任务的结果（只有直出动作条件）见 [`../results/success_rates.csv`](../results/success_rates.csv)。每格只有 10 回合，重跑时每格有几个回合的波动是正常的，`prim_pixel_nohint` 尤其明显。`run_condition.sh` 里 `oracle` 的物体与偏移设置是根据实验记录重建的，可能与报告中的 run 略有差异。
+其余六个任务的结果（只有直出动作条件）见 [`../results/success_rates.csv`](../results/success_rates.csv)。每格只有 10 回合，重跑时每格有几个回合的波动是正常的，`prim_pixel_nohint` 尤其明显。
 
 libero_goal 任务号：0 开中间抽屉 · 1 碗→炉子 · 2 酒瓶→柜顶 · 3 开顶层抽屉放碗 · 4 碗→柜顶 · 5 推盘子 · 6 奶油芝士→碗 · 7 开炉子 · 8 碗→盘子 · 9 酒瓶→架子。
 

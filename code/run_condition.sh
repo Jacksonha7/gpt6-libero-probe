@@ -1,6 +1,7 @@
 #!/bin/bash
-# 按条件名运行一个任务。条件、参数和预期结果见 conditions.tsv
+# 按条件名运行一个任务。条件、参数和报告中的结果见 conditions.tsv
 # Usage: bash run_condition.sh <condition> <task_id> [episodes]
+set -o pipefail
 cd "$(dirname "$0")" && source env.sh
 COND=$1; TASK=$2; N=${3:-10}
 ARGS=$(awk -F'\t' -v c="$COND" 'NR>1 && $1==c {print $2}' conditions.tsv)

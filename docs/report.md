@@ -22,7 +22,7 @@
 | Interface | What the model outputs | What executes it |
 |---|---|---|
 | Primitives | `grasp(target)`, `place(target)` or `done`; up to 6 calls per episode | A fixed controller moves the gripper vertically down to the target, closes/opens and lifts |
-| Raw actions | Up to 10 steps of LIBERO's native action `[dx, dy, dz, droll, dpitch, dyaw, gripper]` in [−1, 1] per call; up to 40 calls / 450 steps | Sent to the simulator as-is, no controller in between. After each call the model gets new images, the measured end-effector displacement and position, and the gripper opening |
+| Raw actions | Up to 10 steps of LIBERO's native action `[dx, dy, dz, droll, dpitch, dyaw, gripper]` in [−1, 1] per call; up to 40 calls / 450 steps | Submitted as-is to the simulator's built-in end-effector controller (LIBERO's default operational-space controller), bypassing the hand-written grasp/place routine. After each call the model gets new images, the measured end-effector displacement and position, and the gripper opening |
 
 For raw actions, the prompt states the measured controller response: about 1.3 cm per step at full scale, about 1 cm of coasting after a stop, about 10 steps to close the gripper.
 
@@ -39,6 +39,8 @@ For raw actions, the prompt states the measured controller response: about 1.3 c
 | Raw actions · images only [F] | Raw actions | — | No |
 | Raw actions · images + side view [G] | Raw actions | — | No |
 | Raw actions · images only, high effort [F-high] | Raw actions | — | No |
+
+"Images only" means no ground-truth object coordinates. Every raw-action condition still receives the main and wrist camera images and the measured end-effector position.
 
 The two hints removed in [B] are: "the bowl is wider than the gripper, so grasp its rim" and "when holding the rim, the bowl's center is offset from the gripper, so compensate when placing".
 
@@ -57,7 +59,7 @@ The two hints removed in [B] are: "the bowl is wider than the gripper, so grasp 
 
 **Episodes.** 10 per condition per task (9 for three tasks under [G], 4 for [F-high]). In total 413 GPT-6 episodes and 40 baseline episodes.
 
-**Baseline.** Running the primitive controller on true object positions succeeds 40/40 on the four core tasks, so primitive-interface failures come from the model's targets or decisions, not from the controller.
+**Baseline.** Running the primitive controller on true object positions succeeds 40/40 on the four core tasks. This validates the primitive controller on those four tasks only: primitive-interface failures there come from the model's targets or decisions. It does not validate the raw-action interface or the other six tasks. For raw actions, the closest check is [E]: with object coordinates given, the same interface reaches 37/40 on the core tasks, so it is usable, but there is no model-free baseline for it.
 
 ---
 
@@ -122,7 +124,7 @@ In most [F] episodes the object is never touched (median final displacement 0 cm
 
 *[E]'s left-right spread on the bowl tasks is two deliberate clusters at ±5 cm: it grasps the left or right rim.*
 
-The model aligns the gripper with the object in the image plane but cannot tell whether it is directly above the object or hovering 7 cm in front of it. From an oblique camera the two views are nearly identical. Its own scene descriptions say things like "the gripper is directly above the cream cheese" when it is 8 cm away. Getting a fresh image every 10 steps does not help, because every new image has the same ambiguity.
+The model aligns the gripper with the object in the image plane but cannot tell whether it is directly above the object or hovering 7 cm in front of it. From the oblique main camera the two views are nearly identical, and in practice the wrist camera, which is also in the input, does not resolve it. Its own scene descriptions say things like "the gripper is directly above the cream cheese" when it is 8 cm away. Getting a fresh image every 10 steps does not help, because every new image has the same ambiguity.
 
 ### The same failure through other interfaces
 
@@ -156,7 +158,7 @@ Removing the two bowl-rim hints [B] makes no difference on the loose tasks (10/1
 | 4 bowl→cabinet top | 10/10 | 10/10 |
 | 6 cheese→bowl (strict) | 1/10 | 1/10 |
 
-**Answer.** Without coordinates, the dominant failure is depth along the main camera's line of sight. Left-right localization, planning and control remain usable, as shown by pixel pointing with a depth map (30/40) and by raw actions with coordinates (37/40).
+**Answer.** Without object coordinates, in this main + wrist camera setup, the dominant failure is depth along the main camera's line of sight. Left-right localization, planning and control remain usable, as shown by pixel pointing with a depth map (30/40) and by raw actions with coordinates (37/40).
 
 ---
 
@@ -181,7 +183,7 @@ Two single-change variants of raw actions · images only [F]:
 | Images + side view [G] | **1.6 cm** | 1.9 cm |
 | Coordinates [E] | 0.6 cm | 2.0 cm |
 
-- **A side view removes most of the depth error.** The side camera sees the main camera's depth axis as left-right. Success goes from 5% to 85%, close to the 93% achieved with true coordinates, with no coordinates or depth maps given.
+- **A side view removes most of the depth error.** The side camera sees the main camera's depth axis as left-right. Success goes from 5% to 85%, close to the 93% achieved with true coordinates, without ground-truth object coordinates or depth maps (the end-effector position is still provided, as in every raw-action condition).
 - **More reasoning helps less.** High effort halves the depth error but leaves 3.5 cm, and reasoning tokens per call rise from about 80 to about 210. With only 16 episodes, we can say it is far less effective than a second view, not how effective it is.
 - **Remaining failures are about finishing, not finding.** 4 of [G]'s 5 failures on task 8 leave the bowl on the plate 3.2–4.1 cm from center (threshold 3 cm) and declare success, the same pattern as [E]'s failures. The model does not check whether the success condition is actually met.
 
@@ -229,7 +231,7 @@ What this probe adds:
 | Image center ≠ 3D center under an oblique view; metric feedback allows correction, pixel feedback does not | Task 6: [A] 1/10, [C] 10/10 |
 | Drawer failures persist with coordinates, i.e. they are not a localization problem; this matches their "container-edge collision" and "unreachable target" failure modes | Tasks 0, 3: [E] and [G] 0 |
 
-**The apparent contradiction.** Their images-only Direct mode scores 49/50 on RoboLab pick-place; our closest condition [F] scores 2/40. Both are closed-loop, images-only and coordinate-free. Four differences remain: reasoning effort (xhigh vs. low), cameras (head + two wrist vs. one oblique main + one wrist), tool use (allowed vs. not) and steps per call (1–5 vs. 10). We tested two: an orthogonal view takes us from 5% to 85%, higher effort to 19%. Camera layout is therefore the most likely main factor. Tool use and steps per call remain untested.
+**The apparent contradiction.** Their images-only Direct mode scores 49/50 on RoboLab pick-place; our closest condition [F] scores 2/40. Both are closed-loop and give the model no ground-truth object coordinates. Four differences remain: reasoning effort (xhigh vs. low), cameras (head + two wrist vs. one oblique main + one wrist), tool use (allowed vs. not) and steps per call (1–5 vs. 10). We tested two: an orthogonal view takes us from 5% to 85%, higher effort to 19%. Camera layout is therefore the most likely main factor. Tool use and steps per call remain untested.
 
 ### FluxVLA issue #121
 

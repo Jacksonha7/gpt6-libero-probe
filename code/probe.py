@@ -446,6 +446,32 @@ def run_episode(env, init_state, instruction, args, ep_dir):
     return summary
 
 
+RUN_ONLY_KEYS = ("episodes", "ep_start", "run_name")     # 只影响跑哪些回合，不影响回合内容
+
+
+def check_config(run_dir, args):
+    """把本次配置写进 run_dir/config.json；若目录里已有不同配置的回合，报错退出。
+    没有 config.json 的旧 run 退回到用 summary.json 里的 args 比较（只比两边都有的键）。"""
+    cur = {k: v for k, v in vars(args).items() if k not in RUN_ONLY_KEYS}
+    cfg_p, sum_p = os.path.join(run_dir, "config.json"), os.path.join(run_dir, "summary.json")
+    if os.path.exists(cfg_p):
+        old, keys = json.load(open(cfg_p)), None                      # 新 run：所有键都要一致
+    elif os.path.exists(sum_p):
+        old = json.load(open(sum_p))["args"]
+        keys = [k for k in cur if k in old]                           # 旧 run：只比两边都有的键
+    else:
+        old = None
+    if old is not None:
+        keys = keys if keys is not None else sorted(set(old) | set(cur))
+        diff = {k: [old.get(k), cur.get(k)] for k in keys if old.get(k) != cur.get(k)}
+        if diff:
+            raise SystemExit("run dir %s already holds episodes from a different configuration "
+                             "(key: existing -> requested): %s\nUse a new --run-name or delete the directory."
+                             % (run_dir, json.dumps(diff)))
+    with open(cfg_p, "w") as f:
+        json.dump(cur, f, indent=1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--suite", default="libero_goal")
@@ -477,6 +503,7 @@ def main():
     run = args.run_name or "%s_%s_t%d_%s" % (time.strftime("%m%d_%H%M%S"), args.suite, args.task_id, args.policy)
     run_dir = os.path.join(os.environ["PROBE_OUT"], "runs", run)
     os.makedirs(run_dir, exist_ok=True)       # 支持断点续跑：已有 episode.json 的回合跳过，半截的回合目录删掉重跑
+    check_config(run_dir, args)               # 续跑前确认配置一致，避免新旧配置的回合混在同一个 run 里
     env, instruction, inits = make_env(args.suite, args.task_id, args.res, extra_cams=args.extra_cams)
     print("task:", instruction, "| run dir:", run_dir, flush=True)
     results = []

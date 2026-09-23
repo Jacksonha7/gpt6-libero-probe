@@ -18,7 +18,7 @@ GPT-6 is called through `codex exec` (using a ChatGPT subscription, no API key n
 | `upload_wandb.py` | Uploads runs to wandb (rollout videos + per-call tables); optional |
 | `run_ablation.sh` | Runs conditions A–D in parallel on one task |
 | `run_r1.sh` | Batch runs of the direct-action conditions (E/F/G/F-high) |
-| `run_condition.sh` + `conditions.tsv` | Run any condition by name; lists arguments and expected results |
+| `run_condition.sh` + `conditions.tsv` | Run any condition by name; lists arguments, reported results and where each configuration comes from |
 | `slurm/*.sbatch` | Slurm job templates (fill in your partition) |
 
 Code comments are in Chinese.
@@ -38,9 +38,9 @@ $PY test_geom.py libero_goal 8        # check $PROBE_OUT/test/proj_*.png: red ci
 
 ## Running a condition
 
-Every condition in the report has a name, its `probe.py` arguments and its expected result in [`conditions.tsv`](conditions.tsv):
+Every condition in the report has a name, its `probe.py` arguments, the success counts reported in the report and the source of its configuration in [`conditions.tsv`](conditions.tsv):
 
-| Condition | Report label | Expected successes on tasks 8 / 1 / 4 / 6 (10 episodes each) |
+| Condition | Report label | Reported successes on tasks 8 / 1 / 4 / 6 (10 episodes each) |
 |---|---|---|
 | `oracle` | Ground-truth baseline | 10 / 10 / 10 / 10 |
 | `prim_coords` | Primitives · coordinates [C] | 10 / 10 / 10 / 10 |
@@ -57,14 +57,21 @@ bash run_condition.sh act_vision_side 1 10     # condition, task id, episodes
 $PY analyze.py act_vision_side                 # summarize all runs with this prefix
 ```
 
+**Historical vs. reconstructed.** The counts above are from the original runs; they have not been re-run with this repository and should be read as reference values, not verified expectations.
+
+- Model conditions (`prim_*`, `act_*`): the flags are identical to the original batch scripts `run_ablation.sh` and `run_r1.sh`. The code is the final version of the project; some earlier runs used earlier versions of the primitive controller (for example, `prim_pixel_nohint` on task 8 scored 6/10 before a controller change and 2/10 after).
+- `oracle`: the per-task object names and grasp offsets in `run_condition.sh` were reconstructed from notes and may differ from the reported baseline runs.
+
+**Safety checks.** `run_condition.sh` exits with a non-zero status if `probe.py` fails. `probe.py` writes the run's configuration to `config.json` and refuses to resume a run directory whose existing episodes were produced with a different configuration, so changed arguments cannot silently mix with old episodes. Use a new `--run-name` or delete the directory in that case.
+
 Minimal smoke test (the first command makes no model calls):
 
 ```bash
-bash run_condition.sh oracle 8 2               # expect 2/2: checks rendering, geometry and controller
+bash run_condition.sh oracle 8 2               # checks rendering, geometry and the primitive controller
 bash run_condition.sh prim_coords 8 2          # usually 2/2: checks the codex connection
 ```
 
-Results for the other six tasks (raw-action conditions only) are in [`../results/success_rates.csv`](../results/success_rates.csv). With 10 episodes per cell, expect a few episodes of variation per cell, especially for `prim_pixel_nohint`. The `oracle` object/offset settings in `run_condition.sh` are reconstructed from the experiment notes and may differ slightly from the runs in the report.
+Results for the other six tasks (raw-action conditions only) are in [`../results/success_rates.csv`](../results/success_rates.csv). With 10 episodes per cell, expect a few episodes of variation per cell, especially for `prim_pixel_nohint`.
 
 libero_goal task ids: 0 open middle drawer · 1 bowl→stove · 2 wine bottle→cabinet top · 3 open top drawer and put bowl in · 4 bowl→cabinet top · 5 push plate · 6 cream cheese→bowl · 7 turn on stove · 8 bowl→plate · 9 wine bottle→rack.
 
