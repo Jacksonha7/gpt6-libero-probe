@@ -76,7 +76,7 @@ All clips play at 3× speed. The label at the top of each panel gives the condit
 
 <img src="../assets/gifs/video16.gif" width="720">
 
-**Absolute targets fix grasping, not placement** (task 4, bowl→cabinet top). Left: [F], the gripper closes in front of the bowl. Middle: [H1], grasps the bowl but puts it in the wrong place. Right: [H2], succeeds.
+**Absolute targets fix the depth bias, not the grasp height** (task 4, bowl→cabinet top). Left: [F], the gripper closes about 22 cm in front of the bowl, eight times. Middle: [H1], a failed episode: the depth is now right, but the gripper closes about 7 cm above the rim and the bowl never leaves the table. Right: [H2], it checks in the wrist view that the rim is between the fingers, lifts the bowl over the cabinet and succeeds.
 
 <img src="../assets/gifs/video17.gif" width="720">
 

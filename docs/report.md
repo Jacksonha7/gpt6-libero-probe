@@ -234,15 +234,15 @@ Two open-source GPT-6 policy frameworks use the same camera pair as this probe: 
 | Stage metric | [F] | [H1] | [H2] |
 |---|:-:|:-:|:-:|
 | Depth error at first gripper close (mean) | 7.2 cm toward the camera | 0.5 cm | 0.7 cm |
-| Episodes in which the object was lifted | few | 40/40 | 38/40 |
-| Failed episodes: first release point to target center (median) | — | 17.5 cm | 16.8 cm |
-| Failed episodes that the model declared complete | — | 11/37 | 12/29 |
+| Episodes in which the object was actually lifted (≥3 cm above its start) | 6/40 | 20/40 | 28/40 |
+| Failed episodes: never lifted / lifted but misplaced | 34 / 4 | 20 / 17 | 12 / 17 |
+| Failed episodes that the model declared complete (all of them lifted episodes) | 5 | 11 | 12 |
 
 - **The cameras were not the limiting factor.** With the same cameras, the two ports succeed 10/12 on task 8, where [F] scores 0/10. A side view is one fix, not the only one. This revises the Q3 reading that camera layout is the main reason for the gap to Galbot.
 - **Prompt wording is not the cause.** [F-wrist] scores 1/40.
-- **Absolute targets with measured feedback remove the depth error** (7.2 → 0.5 cm), and every [H1] episode grasps the object. The model approaches step by step, reading the measured position.
-- **The bottleneck moves to placement.** Failed episodes release the object about 17 cm from the target (median), and about a third of them end with the model declaring success, for example describing the cream cheese as "inside the bowl" while it sits on the table 15 cm away. This is the execution-state hallucination reported in FluxVLA issue #121, here counted.
-- **History frames help but do not close the gap** (3 → 11 of 40). Remaining differences from the ports: episodes end only when the simulator confirms success (the model cannot declare completion); one persistent conversation; their prompt; 384 vs. 512 px images; joint-position vs. end-effector control. [H3], which is [H2] with the model's completion flag ignored, is scripted (`code/slurm/round7_nodone.sbatch`) but not yet run.
+- **Absolute targets with measured feedback remove the depth bias** (7.2 → 0.5 cm) without a side view. But only 20/40 episodes actually lift the object: in the failed grasps the gripper first closes about 9 cm above the object's base (median), versus about 3 cm in successful ones, i.e. before reaching the rim.
+- **Lifted objects are often misplaced, and misplacement is reported as success.** Of the 17 [H1] episodes that lifted the object but failed, 11 end with the model declaring success, for example describing the cream cheese as "inside the bowl" while it sits on the table 15 cm away. This is the execution-state hallucination reported in FluxVLA issue #121, here counted.
+- **History frames help but do not close the gap** (3 → 11 of 40), mainly by lifting the object more often (20 → 28). Remaining differences from the ports: episodes end only when the simulator confirms success (the model cannot declare completion); one persistent conversation; their prompt; 384 vs. 512 px images; joint-position vs. end-effector control. [H3], which is [H2] with the model's completion flag ignored, is scripted (`code/slurm/round7_nodone.sbatch`) but not yet run.
 - **Code execution and reasoning effort do not explain the ports' success.** A GPT-as-Policy episode with the shell unavailable succeeded; when the shell was available the model only read files and took notes. xhigh scored 4/4 and low 4/5.
 - **A demonstration from another task did not mislead GPT-Policy.** With a bowl→stove demonstration on the bowl→plate task it scored 5/5; its notes show it reused only the rim grasp. One kind of wrong demonstration, 5 episodes.
 
@@ -274,7 +274,7 @@ What this probe adds:
 | Image center ≠ 3D center under an oblique view; metric feedback allows correction, pixel feedback does not | Task 6: [A] 1/10, [C] 10/10 |
 | Drawer failures persist with coordinates, i.e. they are not a localization problem; this matches their "container-edge collision" and "unreachable target" failure modes | Tasks 0, 3: [E] and [G] 0 |
 | Same model and cameras: the interface alone moves task 8 from 0/10 to 6/7; code execution and effort are not the cause | [Q4](#q4-is-the-depth-failure-the-models-limit-or-the-interfaces) |
-| Absolute targets with measured feedback fix depth (7.2 → 0.5 cm) and expose false completion in about a third of failed episodes | [H1], [H2] |
+| Absolute targets with measured feedback fix the depth bias (7.2 → 0.5 cm); false completion counted in 11 of 17 lifted-but-failed episodes | [H1], [H2] |
 | Two open GPT-6 policy frameworks run side by side on one benchmark | Q4 ports |
 
 **The apparent contradiction.** Their images-only Direct mode scores 49/50 on RoboLab pick-place; our [F] scores 2/40. An orthogonal side view takes [F] to 34/40, but [Q4](#q4-is-the-depth-failure-the-models-limit-or-the-interfaces) shows the extra camera is not required: with our main + wrist cameras, their interface ported to LIBERO scores 8/9. The gap therefore comes mainly from the interface (absolute targets with measured feedback, short chunks, a persistent conversation, simulator-only termination), not from camera layout, reasoning effort or tool use.

@@ -42,7 +42,7 @@ At depth along the main camera's line of sight. With the main and wrist cameras,
 A side view perpendicular to the main camera removes most of the depth error, which a higher reasoning effort does not. It does not fix drawers, pushing, very small targets, or the habit of declaring success when a placement is 3–4 cm off.
 
 **4. Is that depth failure the model's limit?**
-Mostly not. Keeping the same two cameras and changing only the interface removes it: with absolute targets and measured-position feedback the depth error drops from 7.2 cm to 0.5 cm and every episode grasps the object, and Galbot's full interface ported to LIBERO succeeds 8/9. The bottleneck then moves to placement: about a third of the remaining failures declare success with the object still ~17 cm off. Code execution and reasoning effort do not explain the difference. Reported success rates from different groups (0% to 98%) are therefore not comparable without the harness.
+Mostly not. Keeping the same two cameras and changing only the interface removes the depth bias: with absolute targets and measured-position feedback the depth error drops from 7.2 cm to 0.5 cm and the object is actually lifted in 20/40 episodes (28/40 with history frames) instead of 6/40, and Galbot's full interface ported to LIBERO succeeds 8/9. The remaining failures split between closing the gripper too high and misplacing a lifted object; most misplaced episodes end with the model declaring success. Code execution and reasoning effort do not explain the difference. Reported success rates from different groups (0% to 98%) are therefore not comparable without the harness.
 
 ## One case
 
@@ -64,7 +64,7 @@ Same scene, same model, no object coordinates. Left: main + wrist camera; the gr
 | Planning, 2D pointing, 3D localization and control measured separately, against a ground-truth baseline | 40/40, 30/40, 0/40, 37/40; baseline 40/40 |
 | The localization error is directional: 7.2 cm along the main camera's depth axis, under 1 cm sideways | [F] |
 | Same model, same cameras: the action interface alone moves success from 2/40 to 8/9; code execution and reasoning effort are not the cause | [Q4](docs/report.md#q4-is-the-depth-failure-the-models-limit-or-the-interfaces) |
-| Absolute targets with measured feedback fix depth and expose false "done" in about a third of failed episodes (counted, not anecdotal) | [H1], [H2] |
+| Absolute targets with measured feedback fix the depth bias; false "done" is counted: 11 of 17 lifted-but-failed episodes end with the model declaring success | [H1], [H2] |
 | Two open GPT-6 policy frameworks (GPT-as-Policy, GPT-Policy) run side by side on one benchmark | ports |
 
 ## Capability boundaries (within the tested tasks)
@@ -75,7 +75,7 @@ Same scene, same model, no object coordinates. Left: main + wrist camera; the gr
 | Delta-action control toward known targets (approach, grasp, carry, place, press) | Reliable | 37/40 on 4 tasks; 29/30 on 3 more |
 | Pointing at objects in the image | Reliable, except when the image center of an opening differs from its 3D center | 30/40; 1/10 on the bowl-center task |
 | Depth with the main + wrist cameras | Fails; biased toward the main camera | 2/40, 7.2 cm error |
-| Depth with the same cameras, absolute targets + measured feedback | Fixed (0.5 cm error); placement and false "done" become the bottleneck | 3/40; 11/40 with history frames; ported GPT-as-Policy interface 8/9 |
+| Depth with the same cameras, absolute targets + measured feedback | Depth bias gone (0.5 cm); grasping still fails in half the episodes (gripper closes too high), and misplaced objects are often declared done | 3/40; 11/40 with history frames; ported GPT-as-Policy interface 8/9 |
 | Depth with an added orthogonal side view | Mostly works | 34/40, 1.6 cm error |
 | Stating metric 3D coordinates from images | Fails | 0/40 |
 | Approaching from the side (drawer handles) | Fails, with or without coordinates | 0/20, 0/20 |
