@@ -44,6 +44,25 @@ round,condition,description,task_id,task,successes,episodes
 4,G,F + side-view camera,2,wine bottle->cabinet top,8,10
 4,G,F + side-view camera,9,wine bottle->rack,7,10
 4,G,F + side-view camera,7,turn on stove,4,10
-4,G,F + side-view camera,5,push plate to stove front,0,9
-4,G,F + side-view camera,0,open middle drawer,0,9
-4,G,F + side-view camera,3,open top drawer + put bowl,0,9
+4,G,F + side-view camera,5,push plate to stove front,0,10
+4,G,F + side-view camera,0,open middle drawer,0,10
+4,G,F + side-view camera,3,open top drawer + put bowl,0,10
+5,F-wrist,F + prompt encourages wrist camera,8,bowl->plate,0,10
+5,F-wrist,F + prompt encourages wrist camera,1,bowl->stove,0,10
+5,F-wrist,F + prompt encourages wrist camera,4,bowl->cabinet top,0,10
+5,F-wrist,F + prompt encourages wrist camera,6,cream cheese->bowl,1,10
+6,H1,absolute target + measured feedback (images only),8,bowl->plate,0,10
+6,H1,absolute target + measured feedback (images only),1,bowl->stove,0,10
+6,H1,absolute target + measured feedback (images only),4,bowl->cabinet top,2,10
+6,H1,absolute target + measured feedback (images only),6,cream cheese->bowl,1,10
+6,H2,H1 + last 3 main-camera frames,8,bowl->plate,1,10
+6,H2,H1 + last 3 main-camera frames,1,bowl->stove,2,10
+6,H2,H1 + last 3 main-camera frames,4,bowl->cabinet top,6,10
+6,H2,H1 + last 3 main-camera frames,6,cream cheese->bowl,2,10
+5,port-GAP-low,GPT-as-Policy Direct interface ported to LIBERO (low effort),8,bowl->plate,3,4
+5,port-GAP-xhigh,GPT-as-Policy Direct interface ported to LIBERO (xhigh effort),8,bowl->plate,3,3
+5,port-GAP-low,GPT-as-Policy Direct interface ported to LIBERO (low effort),6,cream cheese->bowl,1,1
+5,port-GAP-xhigh,GPT-as-Policy Direct interface ported to LIBERO (xhigh effort),6,cream cheese->bowl,1,1
+5,port-GPTPolicy-none,GPT-Policy interface ported to LIBERO; no demo; RGB only,8,bowl->plate,4,5
+5,port-GPTPolicy-same,GPT-Policy interface ported to LIBERO; same-task demo; RGB only,8,bowl->plate,5,5
+5,port-GPTPolicy-wrong,GPT-Policy interface ported to LIBERO; other-task demo (bowl->stove); RGB only,8,bowl->plate,5,5

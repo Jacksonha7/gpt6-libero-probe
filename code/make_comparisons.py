@@ -4,7 +4,7 @@ import json, os
 import imageio, numpy as np
 from PIL import Image, ImageDraw, ImageFont
 R, O = os.environ["PROBE_OUT"] + "/runs", os.environ["PROBE_OUT"] + "/report"
-NAMES = {"r1side": "G  raw actions (image only + SIDE camera)", "r1high": "F-high  raw actions (image only, high effort)", "r3_full": "A  point at pixel (with hints)", "r3_nohint": "B  point at pixel (no hints)",
+NAMES = {"r1abshist": "H2  abs target + history images", "r1abs": "H1  abs target (image only)", "r1side": "G  raw actions (image only + SIDE camera)", "r1high": "F-high  raw actions (image only, high effort)", "r3_full": "A  point at pixel (with hints)", "r3_nohint": "B  point at pixel (no hints)",
          "r2_state": "C  output xyz (true coords given)", "r2_vision": "D  output xyz (image only)", "orc": "Control (ground-truth positions)",
          "r1_state": "E  raw 7-D actions (true coords given)", "r1_vision": "F  raw 7-D actions (image only)"}
 W, H, BAR = 336, 300, 40
@@ -58,3 +58,5 @@ compare("12_stove_t7", [("r1all_t7_r1_state", 0), ("r1allside_t7_r1_vision", 1),
 compare("13_drawer_t0_fail", [("r1all_t0_r1_state", 0), ("r1allside_t0_r1_vision", 0)])
 compare("14_wine_bottle_t2", [("r1all_t2_r1_state", 0), ("r1allside_t2_r1_vision", 0)])
 compare("15_push_plate_t5", [("r1all_t5_r1_state", 2), ("r1all_t5_r1_state", 0)])
+compare("17_abs_false_done_t6", [("r1abs_t6_r1_vision", 0), ("r1abshist_t6_r1_vision", 5)])
+compare("18_abs_t4", [("r1a_t4_r1_vision", 0), ("r1abs_t4_r1_vision", 0), ("r1abshist_t4_r1_vision", 0)])
