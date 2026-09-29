@@ -21,6 +21,15 @@ Four pick-and-place tasks, 10 episodes each. In every row the model outputs 7-D 
 | One side-view camera image | **34/40** |
 | Nothing else, but high reasoning effort (4 episodes per task) | 3/16 |
 
+Same two cameras, images only; only the action interface changes:
+
+| Interface | Success |
+|---|:-:|
+| Raw delta actions (the "Nothing else" row above) | 2/40 |
+| Absolute end-effector target + measured-position feedback, ≤5 steps per call | 3/40 |
+| … plus the last 3 main-camera frames | 11/40 |
+| Galbot's GPT-as-Policy interface, ported to LIBERO (tasks 8 and 6) | **8/9** |
+
 ## Findings
 
 **1. When object positions are known, can it complete the task?**
@@ -32,11 +41,31 @@ At depth along the main camera's line of sight. With the main and wrist cameras,
 **3. What does adding a camera view fix, and what does it not?**
 A side view perpendicular to the main camera removes most of the depth error, which a higher reasoning effort does not. It does not fix drawers, pushing, very small targets, or the habit of declaring success when a placement is 3–4 cm off.
 
+**4. Is that depth failure the model's limit?**
+Mostly not. Keeping the same two cameras and changing only the interface removes it: with absolute targets and measured-position feedback the depth error drops from 7.2 cm to 0.5 cm and every episode grasps the object, and Galbot's full interface ported to LIBERO succeeds 8/9. The bottleneck then moves to placement: about a third of the remaining failures declare success with the object still ~17 cm off. Code execution and reasoning effort do not explain the difference. Reported success rates from different groups (0% to 98%) are therefore not comparable without the harness.
+
 ## One case
 
 Same scene, same model, no object coordinates. Left: main + wrist camera; the gripper closes on empty space in front of the bowl. Right: plus one side-view image; it grasps the rim and places the bowl on the stove.
 
 <img src="assets/gifs/video09.gif" width="720">
+
+## What was already known, and what this adds
+
+| Already reported by others | Source |
+|---|---|
+| GPT-6 works as a zero-shot policy through end-effector targets; strong on coarse pick-and-place, weak on contact-rich insertion | Galbot, Robocurve |
+| A VLA executing, with GPT-6 as planner or corrector, beats either alone on long-horizon tasks | Galbot (Hybrid), RPent |
+| Metric coordinates from RGB are unreliable, and the model sometimes believes a grasp succeeded when it did not | FluxVLA issue #121 (single report) |
+| One demonstration in context helps | GPT-Policy |
+
+| New in this repository | Evidence |
+|---|---|
+| Planning, 2D pointing, 3D localization and control measured separately, against a ground-truth baseline | 40/40, 30/40, 0/40, 37/40; baseline 40/40 |
+| The localization error is directional: 7.2 cm along the main camera's depth axis, under 1 cm sideways | [F] |
+| Same model, same cameras: the action interface alone moves success from 2/40 to 8/9; code execution and reasoning effort are not the cause | [Q4](docs/report.md#q4-is-the-depth-failure-the-models-limit-or-the-interfaces) |
+| Absolute targets with measured feedback fix depth and expose false "done" in about a third of failed episodes (counted, not anecdotal) | [H1], [H2] |
+| Two open GPT-6 policy frameworks (GPT-as-Policy, GPT-Policy) run side by side on one benchmark | ports |
 
 ## Capability boundaries (within the tested tasks)
 
@@ -46,9 +75,10 @@ Same scene, same model, no object coordinates. Left: main + wrist camera; the gr
 | Delta-action control toward known targets (approach, grasp, carry, place, press) | Reliable | 37/40 on 4 tasks; 29/30 on 3 more |
 | Pointing at objects in the image | Reliable, except when the image center of an opening differs from its 3D center | 30/40; 1/10 on the bowl-center task |
 | Depth with the main + wrist cameras | Fails; biased toward the main camera | 2/40, 7.2 cm error |
+| Depth with the same cameras, absolute targets + measured feedback | Fixed (0.5 cm error); placement and false "done" become the bottleneck | 3/40; 11/40 with history frames; ported GPT-as-Policy interface 8/9 |
 | Depth with an added orthogonal side view | Mostly works | 34/40, 1.6 cm error |
 | Stating metric 3D coordinates from images | Fails | 0/40 |
-| Approaching from the side (drawer handles) | Fails, with or without coordinates | 0/20, 0/18 |
+| Approaching from the side (drawer handles) | Fails, with or without coordinates | 0/20, 0/20 |
 | Non-prehensile pushing | Unreliable | 5/10 with coordinates |
 | Anticipating implicit geometry (object offset when held by its rim) | Not without a hint; matters only for tight tolerances | 9/10 → 2/10 |
 
@@ -69,4 +99,6 @@ Needs a GPU node for MuJoCo EGL rendering and a logged-in Codex CLI. [`code/cond
 
 ## Related work
 
-Galbot's *GPT 6 Astra as an Embodied Policy* reports 49/50 zero-shot on RoboLab pick-and-place with head and dual-wrist cameras. Our main + wrist result (2/40) and side-view result (34/40) suggest camera layout is the main reason for the gap; see the [comparison](docs/report.md#comparison-with-related-work).
+Galbot's *GPT 6 Astra as an Embodied Policy* reports 49/50 zero-shot on RoboLab pick-and-place with head and dual-wrist cameras; our images-only raw-action condition scores 2/40. We first attributed the gap to camera layout (adding a side view gives 34/40), but porting their interface to LIBERO with our two cameras gives 8/9, so the interface matters more than the cameras. See [Q4](docs/report.md#q4-is-the-depth-failure-the-models-limit-or-the-interfaces) and the [comparison](docs/report.md#comparison-with-related-work).
+
+**Status.** One more condition ([H3]: the model can no longer end the episode itself) and topping the ports up to 10 episodes per task are scripted but not yet run; the Codex workspace spend cap was reached.

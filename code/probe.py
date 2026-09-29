@@ -108,6 +108,8 @@ def build_system(args, ex):
         text = text.replace("Image 2 is the wrist camera (context only).",
                             "Image 2 is the wrist camera, mounted on the gripper and looking down past the fingertips. "
                             "Use it actively: before descending or closing, check in image 2 that the target part is centered between the two fingers, and correct the position if it is not.")
+    if getattr(args, "ignore_done", False):
+        text = text.replace("Set done=true only when the task is complete.", "The episode ends only when the SIMULATOR confirms success or the budget runs out; your done flag does not end it, so if the object is not exactly where the task requires, keep adjusting (re-grasp and re-place if needed).")
     if args.history_images:
         text = text.replace("\nThe gripper always points", "\nAny images after these are image-1 views from your previous turns (oldest first, half resolution), so you can see how the scene changed after your earlier commands.\nThe gripper always points", 1)
     if "sideview" in args.extra_cams:
@@ -200,7 +202,7 @@ def call_codex(prompt, images, model, effort, call_dir, schema):
     for p in paths:
         cmd += ["-i", p]
     cmd += ["--", prompt]      # -i 是可变参数，不加 -- 会把 prompt 也吞成图片路径
-    for attempt in range(3):
+    for attempt in range(8):          # 限流/服务抖动时最多等约 20 分钟（20s,40s,...,160s 封顶）
         t0 = time.time()
         r = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            universal_newlines=True, timeout=900, cwd=sandbox)
@@ -216,8 +218,8 @@ def call_codex(prompt, images, model, effort, call_dir, schema):
                                             "reasoning_summary": reasoning}   # 只有小标题，原始思维链拿不到
         with open(os.path.join(call_dir, "stderr_attempt%d.log" % attempt), "w") as f:
             f.write(r.stderr)
-        time.sleep(20 * (attempt + 1))
-    raise RuntimeError("codex exec failed 3 times, see " + call_dir)
+        time.sleep(min(20 * 2 ** attempt, 160))
+    raise RuntimeError("codex exec failed 8 times, see " + call_dir)
 
 
 class Executor:
@@ -390,7 +392,7 @@ def run_episode(env, init_state, instruction, args, ep_dir):
             history[:] = history[-8:]
             with open(os.path.join(call_dir, "record.json"), "w") as f:
                 json.dump(rec, f, indent=1)
-            if ex.success or ex.t >= args.max_steps or out["done"]:
+            if ex.success or ex.t >= args.max_steps or (out["done"] and not args.ignore_done):
                 break
             continue
         if args.interface == "r1":
@@ -485,6 +487,7 @@ def main():
     ap.add_argument("--prompt-style", choices=["full", "nohint"], default="full", help="r3 专用：nohint 去掉 夹碗沿/放置补偿 两条提示")
     ap.add_argument("--oracle-state", action="store_true", help="r2/r1：把物体真值坐标写进 prompt")
     ap.add_argument("--ep-start", type=int, default=0)
+    ap.add_argument("--ignore-done", action="store_true", help="r1abs：忽略模型的 done，回合只在仿真器判定成功或步数/调用用完时结束")
     ap.add_argument("--history-images", type=int, default=0, help="额外附上前 N 次调用时的主相机图（模拟持久对话里能看到历史图像）")
     ap.add_argument("--wrist-hint", action="store_true", help="把腕部相机的说明从 context only 改成鼓励用它检查对准")
     ap.add_argument("--extra-cams", nargs="*", default=[], help="额外发给模型的相机，目前支持 sideview")

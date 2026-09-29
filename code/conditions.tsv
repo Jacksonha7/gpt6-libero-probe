@@ -8,3 +8,7 @@ act_coords	--interface r1 --oracle-state --max-calls 40 --max-steps 450 --chunk 
 act_vision	--interface r1 --max-calls 40 --max-steps 450 --chunk 10	Raw actions · images only [F]	0 0 1 1	same flags as run_r1.sh
 act_vision_side	--interface r1 --max-calls 40 --max-steps 450 --chunk 10 --extra-cams sideview	Raw actions · images + side view [G]	5 10 10 9	same flags as run_r1.sh
 act_vision_high	--interface r1 --max-calls 40 --max-steps 450 --chunk 10 --effort high	Raw actions · images only, high effort [F-high] (4 episodes)	0/4 1/4 0/4 2/4	same flags as run_r1.sh
+act_vision_wrist	--interface r1 --max-calls 40 --max-steps 450 --chunk 10 --wrist-hint	Raw actions · images only, prompt encourages wrist camera [F-wrist]	0 0 0 1	same flags as run_r1.sh
+abs_vision	--interface r1abs --wrist-hint --max-calls 90 --max-steps 450	Absolute target + measured feedback, images only [H1]	0 0 2 1	slurm/round6_abs.sbatch
+abs_vision_hist	--interface r1abs --wrist-hint --history-images 3 --max-calls 90 --max-steps 450	[H1] + last 3 main-camera frames [H2]	1 2 6 2	slurm/round6_abs.sbatch
+abs_vision_nodone	--interface r1abs --wrist-hint --history-images 3 --ignore-done --max-calls 90 --max-steps 450	[H2], episode ends only on simulator success [H3]	pending	slurm/round7_nodone.sbatch (not yet run: Codex spend cap)

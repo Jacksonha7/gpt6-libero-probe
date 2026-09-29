@@ -69,3 +69,17 @@ All clips play at 3× speed. The label at the top of each panel gives the condit
 **What the side view doesn't fix: small targets** (task 7, turn on stove). Left: coordinates given, succeeds. Middle: side view, succeeds. Right: side view, the gripper lands next to the knob.
 
 <img src="../assets/gifs/video12.gif" width="720">
+
+## Q4. Same cameras, different interface
+
+**Three interfaces, same two cameras** (task 8, images only). Left: [F] raw delta actions, fails. Middle: Galbot's GPT-as-Policy interface ported to LIBERO, succeeds. Right: GPT-Policy's interface ported to LIBERO, no demonstration, succeeds. Each panel's timeline is stretched to the same length.
+
+<img src="../assets/gifs/video16.gif" width="720">
+
+**Absolute targets fix grasping, not placement** (task 4, bowl→cabinet top). Left: [F], the gripper closes in front of the bowl. Middle: [H1], grasps the bowl but puts it in the wrong place. Right: [H2], succeeds.
+
+<img src="../assets/gifs/video17.gif" width="720">
+
+**Declaring a success that did not happen** (task 6, cheese→bowl). Left: [H1] leaves the cheese on the table 15 cm from the bowl and reports that it "rests inside the bowl". Right: [H2] succeeds.
+
+<img src="../assets/gifs/video18.gif" width="720">
